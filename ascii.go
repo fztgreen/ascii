@@ -110,7 +110,7 @@ func readFilepath() (string, error) {
 
 // Prints out an Ascii image of the picture.
 func asciify(img image.Image) {
-    levels := []string{"@", "%", "/", "-", "_", "\\", "#", "&"}
+    levels := []string{"@", "%", "/", "-", "_", "\\", "^", "`"}
 
     res := img.Bounds().Max.Y / img.Bounds().Max.X
 

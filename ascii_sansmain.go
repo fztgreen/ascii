@@ -10,7 +10,7 @@ import (
     "image/jpeg"
     "image/color"
     "strings"
-    "os"
+    "io"
 )
 
 // Define the enum of valid file extensions.
@@ -28,7 +28,7 @@ func check(e error) {
 }
 
 // Retireves an image from a file.
-func retrieveImage(extension string, file *os.File) (image.Image, error) {
+func retrieveImage(extension string, file io.Reader) (image.Image, error) {
     if (strings.Compare(extension, e_png) == 0) {
         return png.Decode(file)
     }

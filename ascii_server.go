@@ -1,16 +1,16 @@
 package main
 
 import (
-    "encoding/base64"
     "fmt"
     "log"
     "net"
     "bytes"
     "strings"
     "io"
-    "io/ioutil"
     "net/http"
     "bufio"
+    "mime/multipart"
+    "time"
 )
 
 // Main function to listen for network input.
@@ -36,38 +36,52 @@ func main() {
 
 // Handles a request.  Meant to be ran independently via a go routine.
 func handleConnection(c net.Conn) {
-//    var filepath = "../heisei.png"
-    var extension = "png"
+    fmt.Println("copying connecting data to buffer")
 
-    fmt.Println("----------")
-    fmt.Println(c)
-    fmt.Println("----------")
-    // Open the file into a stream.
-    //f, err := os.Open(filepath)
-    //check(err)
+    //defer c.Close()
+    //bitties := make([]byte, 5242880)
+    //reqLen, _ := c.Read(bitties)
 
-    //fmt.Println("Opened File")
+    //batties := bytes.NewBuffer(bitties)
 
-    // Retrieves the image from the file
+    c.SetReadDeadline(time.Now().Add(5 * time.Second))
+
     var buf bytes.Buffer
+    num , err := io.CopyN(&buf, c, 995242880)
 
-    _ , err := io.Copy(&buf, c)
+    fmt.Println(num, "bytes read")
 
+    fmt.Println("Converting bytes.Buffer to the http.Request")
     request, _ := http.ReadRequest(bufio.NewReader(strings.NewReader(buf.String())))
-    body, err := ioutil.ReadAll(request.Body)
+
+    fmt.Println("Parsing form")
+    request.ParseMultipartForm(65536)
+
+    fmt.Println("Unloading body")
+    var body []*multipart.FileHeader
+    body = (*request.MultipartForm).File["image"]
+
+    // Verify extension is valid.
+    fmt.Println("Identifying Extension")
+    extension, err := checkFileExtension((*body[0]).Filename)
     check(err)
 
-    fmt.Println("Read String")
-    fmt.Println(string(body))
-    encoded := base64.NewDecoder(base64.StdEncoding, strings.NewReader(string(body)))
-    fmt.Println(encoded)
-    img, err := retrieveImage(extension, encoded)
+    fmt.Println("Opening file")
+    file, err := (*body[0]).Open()
     check(err)
 
-    fmt.Println("Interpreted as an image")
+    fmt.Println("Retrieving Image")
+    img, err := retrieveImage(extension, file)
+    check(err)
+
+    fmt.Println("Converting to Ascii")
 
     // Prints your ascii image.
-    bi := []byte(asciify(img))
+    ascii := asciify(img)
+    fmt.Println(ascii)
+    bi := []byte(ascii)
+
+    fmt.Println("Writing out connection")
     c.Write(bi)
     c.Close()
 }

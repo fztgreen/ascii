@@ -11,6 +11,7 @@ import (
     "bufio"
     "mime/multipart"
     "time"
+    "runtime/debug"
 )
 
 // Main function to listen for network input.
@@ -36,15 +37,21 @@ func main() {
 
 // Handles a request.  Meant to be ran independently via a go routine.
 func handleConnection(c net.Conn) {
+    debug.SetPanicOnFault(true)
+
+    // Set up handling if this routine crashes
+    defer func() {
+        if r := recover(); r != nil {
+            fmt.Printf("Recovering from panic in handle connection error is: %v \n", r)
+            c.Write([]byte("Took too long to process.  Try sending smaller sized image."))
+            c.Close()
+        }
+    }()
+
+
     fmt.Println("copying connecting data to buffer")
 
-    //defer c.Close()
-    //bitties := make([]byte, 5242880)
-    //reqLen, _ := c.Read(bitties)
-
-    //batties := bytes.NewBuffer(bitties)
-
-    c.SetReadDeadline(time.Now().Add(5 * time.Second))
+    c.SetReadDeadline(time.Now().Add(10 * time.Second))
 
     var buf bytes.Buffer
     num , err := io.CopyN(&buf, c, 995242880)

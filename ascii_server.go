@@ -1,94 +1,108 @@
 package main
 
 import (
-    "fmt"
-    "log"
-    "net"
-    "bytes"
-    "strings"
-    "io"
-    "net/http"
-    "bufio"
-    "mime/multipart"
-    "time"
-    "runtime/debug"
+	"bufio"
+	"fmt"
+	"log"
+	"mime/multipart"
+	"net"
+	"net/http"
+	"runtime/debug"
+	"time"
 )
 
 // Main function to listen for network input.
 func main() {
-    l, err := net.Listen("tcp", ":8080")
-    if err != nil {
-        log.Fatal(err)
-    }
+	l, err := net.Listen("tcp", ":8080")
+	if err != nil {
+		log.Fatal(err)
+	}
 
-    defer l.Close()
+	defer l.Close()
 
-    for {
-        // Wait for a connection
-        conn, err := l.Accept()
-        if  err != nil {
-            log.Fatal(err)
-        }
+	for {
+		// Wait for a connection
+		conn, err := l.Accept()
+		if err != nil {
+			log.Fatal(err)
+		}
 
-        go handleConnection(conn)
-    }
+		go handleConnection(conn)
+	}
 }
-
 
 // Handles a request.  Meant to be ran independently via a go routine.
 func handleConnection(c net.Conn) {
-    debug.SetPanicOnFault(true)
+	debug.SetPanicOnFault(true)
 
-    // Set up handling if this routine crashes
-    defer func() {
-        if r := recover(); r != nil {
-            fmt.Printf("Recovering from panic in handle connection error is: %v \n", r)
-            c.Write([]byte("Took too long to process.  Try sending smaller sized image."))
-            c.Close()
-        }
-    }()
+	// Set up handling if this routine crashes
+	defer func() {
+		if r := recover(); r != nil {
+			fmt.Printf("Recovering from panic in handle connection error is: %v \n", r)
+			c.Write([]byte("Took too long to process.  Try sending smaller sized image."))
+			c.Close()
+		}
+	}()
 
+	fmt.Println("copying connecting data to buffer")
 
-    fmt.Println("copying connecting data to buffer")
+	// Read request headers
+	request, err := http.ReadRequest(bufio.NewReader(c))
+	if err != nil {
+		log.Println("Error reading request:", err)
+		c.Close()
+		return
+	}
 
-    c.SetReadDeadline(time.Now().Add(10 * time.Second))
+	// Get the content length from request headers
+	contentLength := request.ContentLength
+	if contentLength < 0 {
+		// Content-Length header not provided or invalid
+		log.Println("Content-Length header not provided or invalid")
+		c.Close()
+		return
+	}
 
-    var buf bytes.Buffer
-    num , err := io.CopyN(&buf, c, 995242880)
+	c.SetReadDeadline(time.Now().Add(10 * time.Second))
 
-    fmt.Println(num, "bytes read")
+	fmt.Println("Parsing form")
+	var maxMemoryAmount int64 = 20 * 1024 * 1024
+	request.ParseMultipartForm(maxMemoryAmount)
 
-    fmt.Println("Converting bytes.Buffer to the http.Request")
-    request, _ := http.ReadRequest(bufio.NewReader(strings.NewReader(buf.String())))
+	fmt.Println("Unloading body")
+	var body []*multipart.FileHeader = (*request.MultipartForm).File["image"]
 
-    fmt.Println("Parsing form")
-    request.ParseMultipartForm(65536)
+	// Verify extension is valid.
+	fmt.Println("Identifying Extension")
+	extension, err := checkFileExtension((*body[0]).Filename)
+	check(err)
 
-    fmt.Println("Unloading body")
-    var body []*multipart.FileHeader
-    body = (*request.MultipartForm).File["image"]
+	fmt.Println("Opening file")
+	file, err := (*body[0]).Open()
+	check(err)
 
-    // Verify extension is valid.
-    fmt.Println("Identifying Extension")
-    extension, err := checkFileExtension((*body[0]).Filename)
-    check(err)
+	fmt.Println("Retrieving Image")
+	img, err := retrieveImage(extension, file)
+	check(err)
 
-    fmt.Println("Opening file")
-    file, err := (*body[0]).Open()
-    check(err)
+	fmt.Println("Converting to Ascii")
 
-    fmt.Println("Retrieving Image")
-    img, err := retrieveImage(extension, file)
-    check(err)
+	// Prints your ascii image.
+	ascii := asciify(img)
+	fmt.Println(ascii)
+	bi := []byte(ascii)
 
-    fmt.Println("Converting to Ascii")
+	// Set response headers
+	headers := fmt.Sprintf("HTTP/1.1 200 OK\r\nContent-Length: %d\r\nContent-Type: text/plain\r\n\r\n", len(bi))
 
-    // Prints your ascii image.
-    ascii := asciify(img)
-    fmt.Println(ascii)
-    bi := []byte(ascii)
+	// Write headers
+	_, err = c.Write([]byte(headers))
+	if err != nil {
+		log.Println("Error writing headers:", err)
+		return
+	}
 
-    fmt.Println("Writing out connection")
-    c.Write(bi)
-    c.Close()
+	fmt.Println("Writing out connection")
+	c.Write(bi)
+	c.Close()
 }
